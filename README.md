@@ -2,15 +2,19 @@
 
 我平时读论文用的一套 Claude Code skills。跟 Claude 说句话就能筛论文、读论文、写笔记，最后自动存进 Obsidian。
 
+> **新分支更新**
+> Codex / Humanoid 的分支：[`codex+humanoid`](https://github.com/huangkiki/dailypaper-skills/tree/codex%2Bhumanoid)。
+> 如果你想直接看 Codex 适配版本，建议先从这个分支开始。
+
 > 📺 [用 Claude Code 打造我的论文流水线](http://xhslink.com/o/1dhQCn40EWY) — 我随手拍的一段视频展示效果
 
 ## 🦴 这套东西会帮我做什么
 
-- 每天抓一批新论文，做一轮初筛，生成推荐列表。
-- 对单篇论文做完整解析、快速摘要或批判性分析。
-- 把论文里的术语顺手沉成概念笔记，方便后面继续连。
-- 把内容写进 Obsidian，顺带维护目录页 / 导航页。
-- 能接 Zotero，所以不用一篇篇复制链接。
+- 抓取每日新论文，初筛后生成推荐列表。
+- 支持完整解析、快速摘要和批判性分析。
+- 术语可沉淀为概念笔记，方便后续串联。
+- 自动写入 Obsidian，并维护目录页和导航页。
+- 可接入 Zotero，省去手动复制链接。
 
 最终生成结果在 Obsidian 里大概会长这样：
 
@@ -181,6 +185,12 @@ mkdir -p "$VAULT/DailyPapers" \
 这是我个人研究工作流的开源整理。AI 生成的推荐、点评和笔记可能有事实错误或遗漏，所以更适合作为辅助工具，而不是直接替代你的研究判断。
 
 另外，这套东西难免会有 bug，平台和环境适配问题也很正常；如果你遇到小问题，最省事的办法通常就是直接让 AI 帮你一起改。
+
+## ⭐ 支持这个项目
+
+如果这套 workflow 对你有帮助，欢迎提 PR、开 issue，或者顺手点个 Star。像 [`codex+humanoid`](https://github.com/huangkiki/dailypaper-skills/tree/codex%2Bhumanoid) 这种兼容性适配也很欢迎，一起补会比我一个人慢慢填坑快很多。
+
+[![Star History Chart](https://api.star-history.com/svg?repos=huangkiki/dailypaper-skills&type=Date)](https://www.star-history.com/#huangkiki/dailypaper-skills&Date)
 
 ## License
 

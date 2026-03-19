@@ -15,13 +15,13 @@ _SHARED_DIR = Path(__file__).resolve().parents[2] / "_shared"
 if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
-from user_config import zotero_db_path, zotero_storage_dir
+from user_config import zotero_db_path, zotero_storage_dir, temp_file_path
 
 # 默认配置
 ZOTERO_DB = zotero_db_path()
 STORAGE_DIR = zotero_storage_dir()
 ZOTERO_DIR = ZOTERO_DB.parent
-TEMP_DB = Path("/tmp/zotero_readonly.sqlite")
+TEMP_DB = temp_file_path("zotero_readonly.sqlite")
 
 
 def copy_db():

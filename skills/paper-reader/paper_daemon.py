@@ -22,6 +22,7 @@ import sys
 import json
 import sqlite3
 import subprocess
+import shutil
 import time
 import argparse
 import logging
@@ -35,7 +36,7 @@ _SHARED_DIR = Path(__file__).resolve().parents[1] / "_shared"
 if str(_SHARED_DIR) not in sys.path:
     sys.path.insert(0, str(_SHARED_DIR))
 
-from user_config import concepts_dir, obsidian_vault_path, paper_notes_dir, zotero_db_path, zotero_storage_dir
+from user_config import concepts_dir, obsidian_vault_path, paper_notes_dir, zotero_db_path, zotero_storage_dir, temp_file_path
 
 # 配置
 ZOTERO_DB = str(zotero_db_path())
@@ -159,8 +160,8 @@ def parse_reset_wait_seconds(message: str) -> Optional[int]:
 
 def copy_zotero_db() -> str:
     """复制 Zotero 数据库以避免锁定"""
-    tmp_db = "/tmp/zotero_readonly.sqlite"
-    subprocess.run(["cp", ZOTERO_DB, tmp_db], check=True)
+    tmp_db = str(temp_file_path("zotero_readonly.sqlite"))
+    shutil.copy(ZOTERO_DB, tmp_db)
     return tmp_db
 
 

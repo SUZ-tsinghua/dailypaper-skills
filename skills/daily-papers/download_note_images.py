@@ -17,6 +17,12 @@ import subprocess
 import sys
 from pathlib import Path
 
+_SHARED_DIR = Path(__file__).resolve().parent.parent / "_shared"
+if str(_SHARED_DIR) not in sys.path:
+    sys.path.insert(0, str(_SHARED_DIR))
+
+from user_config import temp_file_path
+
 CURL_TIMEOUT = 10
 CONCURRENCY = 5
 
@@ -55,7 +61,7 @@ async def check_url(url: str, sem: asyncio.Semaphore) -> bool:
     async with sem:
         try:
             proc = await asyncio.create_subprocess_exec(
-                "curl", "-sL", "-o", "/dev/null",
+                "curl", "-sL", "-o", os.devnull,
                 "-w", "%{http_code}|%{content_type}",
                 "--max-time", str(CURL_TIMEOUT), url,
                 stdout=asyncio.subprocess.PIPE,
@@ -128,7 +134,7 @@ async def try_pdf_extract(arxiv_id: str, assets_dir: Path, method_name: str,
         return None
     async with sem:
         try:
-            pdf_path = f"/tmp/arxiv_{arxiv_id}.pdf"
+            pdf_path = str(temp_file_path(f"arxiv_{arxiv_id}.pdf"))
             prefix = str(assets_dir / f"{method_name}_pdf_fig")
             # Download PDF if not cached
             if not Path(pdf_path).exists():

@@ -2,8 +2,27 @@
 
 import copy
 import json
+import os
+import sys
 from functools import lru_cache
 from pathlib import Path
+
+
+def get_temp_dir() -> Path:
+    """Get platform-appropriate temp directory for daily papers data.
+
+    On Windows: ~/tmp/ (e.g., C:/Users/username/tmp/)
+    On Linux/Mac: /tmp/
+    """
+    if sys.platform == 'win32':
+        # Windows: use user's home directory under ~/tmp
+        tmp_dir = Path.home() / 'tmp'
+    else:
+        # Linux/Mac: use /tmp
+        tmp_dir = Path('/tmp')
+
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    return tmp_dir
 
 
 DEFAULT_CONFIG = {
@@ -170,3 +189,24 @@ def git_commit_enabled() -> bool:
 
 def git_push_enabled() -> bool:
     return bool(automation_config()["git_push"])
+
+
+# ── Temp directory for intermediate data (Windows/Linux compatible) ──────────
+
+def temp_dir() -> Path:
+    """Get platform-appropriate temp directory.
+
+    Windows: ~/tmp/
+    Linux/Mac: /tmp/
+    """
+    return get_temp_dir()
+
+
+def temp_file_path(filename: str) -> Path:
+    """Get full path for a temp file.
+
+    Usage:
+        top30_path = temp_file_path('daily_papers_top30.json')
+        enriched_path = temp_file_path('daily_papers_enriched.json')
+    """
+    return temp_dir() / filename

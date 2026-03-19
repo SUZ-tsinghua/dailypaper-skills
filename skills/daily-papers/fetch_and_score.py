@@ -461,6 +461,9 @@ def main():
     arxiv_papers = fetch_arxiv_papers(start_date, target_date, days)
     top = merge_and_dedup(hf_papers, arxiv_papers, target_date, days=days, top_n=top_n)
 
+    # Output to stdout (UTF-8 encoded for Windows compatibility)
+    import io
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     json.dump(top, sys.stdout, ensure_ascii=False, indent=2)
     print(file=sys.stdout)  # trailing newline
 

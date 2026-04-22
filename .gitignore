@@ -1,5 +1,5 @@
 # Personal Zotero collection mapping (AI auto-generated)
-skills/paper-reader/assets/collection_mapping.json
+.claude/skills/paper-reader/assets/collection_mapping.json
 
 # Python cache
 __pycache__/
@@ -13,4 +13,6 @@ __pycache__/
 *~
 .DS_Store
 
-.claude/
+# Claude Code project state — keep only skills/ tracked
+.claude/*
+!.claude/skills/

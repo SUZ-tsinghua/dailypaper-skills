@@ -74,12 +74,9 @@ ObsidianVault/
 
 如果你是在自己的本地机器上日常使用，通常直接用 `claude --dangerously-skip-permissions` 会省很多权限确认；前提是你清楚这会跳过权限检查，所以更适合个人环境，不建议在不熟悉的机器上直接这么跑。
 
-在仓库根目录运行：
+Skills 已经放在仓库的 `.claude/skills/` 里，Claude Code 打开本仓库时会自动发现，**无需手动复制到 `~/.claude/skills/`**。第一次克隆后只需准备 Obsidian 库目录：
 
 ```bash
-mkdir -p ~/.claude/skills
-cp -r ./skills/* ~/.claude/skills/
-
 # 改成你自己的 Obsidian 库路径，要跟配置文件里的 paths.obsidian_vault 一致
 VAULT=~/ObsidianVault
 mkdir -p "$VAULT/DailyPapers" \
@@ -87,9 +84,16 @@ mkdir -p "$VAULT/DailyPapers" \
   "$VAULT/论文笔记/_待整理"
 ```
 
+如果你希望在**任何目录**（而不仅仅是本仓库目录）也能触发这些 skill，可以额外复制一份到用户级目录：
+
+```bash
+mkdir -p ~/.claude/skills
+cp -r ./.claude/skills/* ~/.claude/skills/
+```
+
 ## ⚙️ 配置
 
-安装完之后需要改一下配置。配置文件是 `~/.claude/skills/_shared/user-config.json`，可以自己改，也可以直接告诉 Claude 你的需求让它帮你改。
+安装完之后需要改一下配置。配置文件是 `.claude/skills/_shared/user-config.json`（或 `~/.claude/skills/_shared/user-config.json`，取决于你上一步装到哪里），可以自己改，也可以直接告诉 Claude 你的需求让它帮你改。
 
 里面主要改这几项：
 

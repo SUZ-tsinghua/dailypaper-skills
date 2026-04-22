@@ -69,9 +69,13 @@ python3 ../daily-papers/fetch_and_score.py --days N > /tmp/daily_papers_top30.js
 根据前面解析的 `DAYS_ARG`，如果用户指定了天数就加 `--days N`，否则不加。
 
 脚本自动完成：
-- 并行抓取 HuggingFace Daily + Trending API 和 arXiv API
-- 关键词打分（正向/负向/领域加分/trending 加分）
-- 按 arXiv ID 合并去重
+- 并行抓取 HuggingFace Daily + Trending API 和 arXiv OAI-PMH
+- arXiv 侧按**公告日期**（announcement date）抓取，等价于 `arxiv.org/list/cs.XX/recent` 的分组方式：
+  周末/节假日提交的论文会落在下一个工作日的公告批次里，不会漏掉
+- 同时包含新提交和旧论文修订（replacement），修订通过 `is_replacement` 字段标记
+- （可选）并行抓取公司博客（Physical Intelligence / Figure / DeepMind / NVIDIA 等）
+- 关键词打分（正向/负向/领域加分/trending 加分 / 博客加分）
+- 按 arXiv ID 或 blog id 合并去重
 - 读取 `.history.json` 跨天去重（含周末模式放宽规则）
 - 不足 20 篇时从历史回填
 - 按 score 降序取 Top 30

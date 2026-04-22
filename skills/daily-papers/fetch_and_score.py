@@ -18,10 +18,10 @@ import argparse
 import json
 import re
 import sys
+import time
 import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta
 from pathlib import Path
-from urllib.error import URLError
 from urllib.request import Request, urlopen
 
 _SHARED_DIR = Path(__file__).resolve().parent.parent / "_shared"
@@ -51,6 +51,13 @@ ATOM_NS = {
     "atom": "http://www.w3.org/2005/Atom",
     "arxiv": "http://arxiv.org/schemas/atom",
 }
+
+OAI_NS = {
+    "oai": "http://www.openarchives.org/OAI/2.0/",
+    "arx": "http://arxiv.org/OAI/arXiv/",
+}
+
+OAI_ENDPOINT = "https://oaipmh.arxiv.org/oai"
 
 # ── Scoring ────────────────────────────────────────────────────────────────
 
@@ -229,137 +236,174 @@ def fetch_hf_papers(start_date=None, end_date=None) -> list[dict]:
     return result
 
 
-def _newest_published_date(root):
-    """Return the newest <published> date across entries, for staleness detection."""
-    newest = None
-    for entry in root.findall("atom:entry", ATOM_NS):
-        pub_el = entry.find("atom:published", ATOM_NS)
-        if pub_el is None or not pub_el.text:
-            continue
+def _oai_fetch_once(url: str, timeout: int = 120) -> str:
+    """Fetch an OAI-PMH URL with one retry on 503/transient failure."""
+    for attempt in range(2):
         try:
-            d = datetime.strptime(pub_el.text[:10], "%Y-%m-%d").date()
-        except ValueError:
-            continue
-        if newest is None or d > newest:
-            newest = d
-    return newest
+            req = Request(url, headers={"User-Agent": "daily-papers-bot/1.0"})
+            with urlopen(req, timeout=timeout) as resp:
+                return resp.read().decode("utf-8")
+        except Exception as e:
+            retry_after = 5
+            if hasattr(e, "headers") and e.headers and e.headers.get("Retry-After"):
+                try:
+                    retry_after = int(e.headers.get("Retry-After"))
+                except ValueError:
+                    pass
+            if attempt == 0:
+                print(f"  [WARN] OAI fetch {url}: {e} — retrying in {retry_after}s", file=sys.stderr)
+                time.sleep(retry_after)
+            else:
+                print(f"  [ERROR] OAI fetch {url}: {e}", file=sys.stderr)
+                return ""
+    return ""
 
 
-def fetch_arxiv_papers(start_date=None, end_date=None, days: int = 1) -> list[dict]:
-    import time as _time
+def _parse_oai_record(record, start_date, end_date) -> dict | None:
+    """Parse one OAI-PMH <record> into a paper dict, applying date+category filters.
 
-    max_results = min(2000 * days, 3000)
-    cats = "+OR+".join(f"cat:{c}" for c in ARXIV_CATEGORIES)
-    base_url = (
-        f"https://export.arxiv.org/api/query?"
-        f"search_query=({cats})"
-        f"&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
+    Returns None if deleted, malformed, outside the date range, or not in
+    ARXIV_CATEGORIES. Both new submissions and replacements/revisions are kept
+    — all records announced on the target date(s). New vs replacement is tagged
+    via `is_replacement`, using the arXiv ID's YYMM prefix (original submission
+    month) — OAI's `<created>` tracks the latest version, not the first.
+    """
+    header = record.find("oai:header", OAI_NS)
+    if header is None or header.get("status") == "deleted":
+        return None
+
+    datestamp_el = header.find("oai:datestamp", OAI_NS)
+    meta = record.find(".//arx:arXiv", OAI_NS)
+    if meta is None or datestamp_el is None:
+        return None
+
+    arxiv_id_el = meta.find("arx:id", OAI_NS)
+    created_el = meta.find("arx:created", OAI_NS)
+    title_el = meta.find("arx:title", OAI_NS)
+    abstract_el = meta.find("arx:abstract", OAI_NS)
+    categories_el = meta.find("arx:categories", OAI_NS)
+    if None in (arxiv_id_el, created_el, title_el, abstract_el, categories_el):
+        return None
+
+    datestamp = (datestamp_el.text or "").strip()
+    created = (created_el.text or "").strip()
+    try:
+        d_date = datetime.strptime(datestamp, "%Y-%m-%d").date()
+    except ValueError:
+        return None
+    if d_date < start_date or d_date > end_date:
+        return None
+
+    paper_cats = (categories_el.text or "").split()
+    if not any(c in ARXIV_CATEGORIES for c in paper_cats):
+        return None
+    primary_cat = paper_cats[0] if paper_cats else ""
+
+    arxiv_id = (arxiv_id_el.text or "").strip()
+    is_replacement = False
+    id_match = re.match(r"(\d{2})(\d{2})\.\d+", arxiv_id)
+    if id_match:
+        id_ym = (2000 + int(id_match.group(1))) * 12 + int(id_match.group(2))
+        ann_ym = d_date.year * 12 + d_date.month
+        is_replacement = (ann_ym - id_ym) >= 2
+
+    authors_list = []
+    affiliations = set()
+    for a in meta.findall("arx:authors/arx:author", OAI_NS):
+        keyname_el = a.find("arx:keyname", OAI_NS)
+        forenames_el = a.find("arx:forenames", OAI_NS)
+        parts = []
+        if forenames_el is not None and forenames_el.text:
+            parts.append(forenames_el.text.strip())
+        if keyname_el is not None and keyname_el.text:
+            parts.append(keyname_el.text.strip())
+        if parts:
+            authors_list.append(" ".join(parts))
+        for aff_el in a.findall("arx:affiliation", OAI_NS):
+            if aff_el.text and aff_el.text.strip():
+                affiliations.add(aff_el.text.strip())
+
+    title = " ".join((title_el.text or "").split())
+    abstract = " ".join((abstract_el.text or "").split())
+
+    return {
+        "title": title,
+        "authors": ", ".join(authors_list),
+        "affiliations": ", ".join(sorted(affiliations)) if affiliations else "",
+        "abstract": abstract,
+        "url": f"https://arxiv.org/abs/{arxiv_id}",
+        "pdf": f"https://arxiv.org/pdf/{arxiv_id}",
+        "date": created,
+        "announcement_date": datestamp,
+        "is_replacement": is_replacement,
+        "score": 0,
+        "category": primary_cat,
+        "source": "arxiv",
+    }
+
+
+def fetch_arxiv_papers(start_date, end_date) -> list[dict]:
+    """Fetch papers *announced* between start_date and end_date via OAI-PMH.
+
+    Uses the announcement datestamp (matching arxiv.org/list/cs.XX/recent),
+    not submittedDate — so Sat/Sun submissions correctly surface on Monday.
+    Returns both new submissions and replacements announced in the window;
+    each record is tagged with `is_replacement` for downstream use.
+    """
+    from_str = start_date.isoformat()
+    until_str = end_date.isoformat()
+    print(
+        f"  Fetching arXiv OAI-PMH (announcement {from_str} ~ {until_str}, set=cs)...",
+        file=sys.stderr,
     )
 
-    timeout = max(60, 30 * days)
-    today_ref = end_date or datetime.now().date()
-    # arXiv mirrors occasionally serve a stale snapshot where the newest
-    # returned paper is >=2 days old — this misses the most recent announcement
-    # batch entirely. Retry with a cache-buster when this happens.
-    STALENESS_THRESHOLD_DAYS = 2
-    MAX_ATTEMPTS = 3
+    papers: list[dict] = []
+    resumption: str | None = None
+    total_records = 0
+    for request_num in range(1, 21):  # safety cap: ~26k records
+        if resumption:
+            url = f"{OAI_ENDPOINT}?verb=ListRecords&resumptionToken={resumption}"
+        else:
+            url = (
+                f"{OAI_ENDPOINT}?verb=ListRecords"
+                f"&from={from_str}&until={until_str}"
+                f"&set=cs&metadataPrefix=arXiv"
+            )
 
-    root = None
-    for attempt in range(1, MAX_ATTEMPTS + 1):
-        url = base_url if attempt == 1 else f"{base_url}&_cb={int(_time.time())}_{attempt}"
-        print(
-            f"  Fetching arXiv (attempt {attempt}/{MAX_ATTEMPTS}, "
-            f"max_results={max_results}, timeout={timeout}s)...",
-            file=sys.stderr,
-        )
-        xml_text = fetch_url(url, timeout=timeout)
+        xml_text = _oai_fetch_once(url)
         if not xml_text:
-            if attempt < MAX_ATTEMPTS:
-                _time.sleep(5)
-                continue
-            return []
+            break
 
         try:
             root = ET.fromstring(xml_text)
         except ET.ParseError as e:
-            print(f"  [WARN] arXiv XML parse error: {e}", file=sys.stderr)
-            if attempt < MAX_ATTEMPTS:
-                _time.sleep(5)
-                continue
-            return []
+            print(f"  [WARN] OAI XML parse error (req #{request_num}): {e}", file=sys.stderr)
+            break
 
-        newest = _newest_published_date(root)
-        if newest is None:
-            break  # nothing to validate; proceed with what we have
-        lag_days = (today_ref - newest).days
-        if lag_days >= STALENESS_THRESHOLD_DAYS and attempt < MAX_ATTEMPTS:
-            print(
-                f"  [WARN] arXiv result looks stale "
-                f"(newest_published={newest}, target={today_ref}, lag={lag_days}d); "
-                f"retrying with cache-buster",
-                file=sys.stderr,
-            )
-            _time.sleep(5)
-            continue
-        break
+        err = root.find("oai:error", OAI_NS)
+        if err is not None:
+            code = err.get("code", "")
+            if code == "noRecordsMatch":
+                print(f"  arXiv OAI: no records in range", file=sys.stderr)
+            else:
+                print(f"  [WARN] OAI error: {code} — {err.text}", file=sys.stderr)
+            break
 
-    if root is None:
-        return []
+        batch = root.findall(".//oai:record", OAI_NS)
+        total_records += len(batch)
+        for r in batch:
+            p = _parse_oai_record(r, start_date, end_date)
+            if p is not None:
+                papers.append(p)
 
-    papers = []
-    filtered_by_date = 0
-    for entry in root.findall("atom:entry", ATOM_NS):
-        title_el = entry.find("atom:title", ATOM_NS)
-        summary_el = entry.find("atom:summary", ATOM_NS)
-        published_el = entry.find("atom:published", ATOM_NS)
-        id_el = entry.find("atom:id", ATOM_NS)
-
-        if title_el is None or summary_el is None:
-            continue
-
-        title = " ".join(title_el.text.split())
-        abstract = " ".join(summary_el.text.split())
-        entry_url = id_el.text.strip() if id_el is not None else ""
-        date = published_el.text[:10] if published_el is not None else ""
-        arxiv_id = entry_url.split("/abs/")[-1] if "/abs/" in entry_url else ""
-
-        # Date filter: only apply in multi-day mode (days > 1)
-        # In single-day mode, arXiv batches span 2-3 days, so filtering would be too strict
-        if days > 1 and start_date and end_date and date:
-            try:
-                pub_date = datetime.strptime(date, "%Y-%m-%d").date()
-                if pub_date < start_date or pub_date > end_date:
-                    filtered_by_date += 1
-                    continue
-            except ValueError:
-                pass  # keep papers with unparseable dates
-
-        author_els = entry.findall("atom:author", ATOM_NS)
-        names = []
-        affiliations = set()
-        for a in author_els:
-            name_el = a.find("atom:name", ATOM_NS)
-            if name_el is not None and name_el.text:
-                names.append(name_el.text.strip())
-            for aff_el in a.findall("arxiv:affiliation", ATOM_NS):
-                if aff_el.text and aff_el.text.strip():
-                    affiliations.add(aff_el.text.strip())
-
-        cat_el = entry.find("arxiv:primary_category", ATOM_NS)
-        category = cat_el.get("term", "") if cat_el is not None else ""
-
-        papers.append({
-            "title": title,
-            "authors": ", ".join(names),
-            "affiliations": ", ".join(sorted(affiliations)) if affiliations else "",
-            "abstract": abstract,
-            "url": entry_url,
-            "pdf": f"https://arxiv.org/pdf/{arxiv_id}" if arxiv_id else "",
-            "date": date,
-            "score": 0,
-            "category": category,
-            "source": "arxiv",
-        })
+        rt_el = root.find(".//oai:resumptionToken", OAI_NS)
+        if rt_el is not None and rt_el.text and rt_el.text.strip():
+            resumption = rt_el.text.strip()
+            time.sleep(3)  # arXiv OAI requests a 3s pause between calls
+        else:
+            break
+    else:
+        print(f"  [WARN] OAI pagination hit 20-request safety cap", file=sys.stderr)
 
     scored = []
     for p in papers:
@@ -368,7 +412,8 @@ def fetch_arxiv_papers(start_date=None, end_date=None, days: int = 1) -> list[di
             scored.append(p)
 
     print(
-        f"  arXiv: {len(scored)} papers after scoring (from {len(papers)} parsed, {filtered_by_date} filtered by date)",
+        f"  arXiv OAI: {len(scored)} scored / {len(papers)} in-category "
+        f"/ {total_records} total records",
         file=sys.stderr,
     )
     return scored
@@ -539,7 +584,7 @@ def main():
     hf_papers = fetch_hf_papers(start_date, target_date)
 
     if "arxiv" in SOURCES:
-        arxiv_papers = fetch_arxiv_papers(start_date, target_date, days)
+        arxiv_papers = fetch_arxiv_papers(start_date, target_date)
     else:
         print("  arxiv disabled via config", file=sys.stderr)
         arxiv_papers = []

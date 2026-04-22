@@ -39,17 +39,20 @@ description: |
 
 ## 前置检查
 
-1. 检查 `/tmp/daily_papers_enriched.json` 是否存在
-2. 检查今天的推荐文件 `{DAILY_PAPERS_PATH}/YYYY-MM-DD-论文推荐.md` 是否存在
-3. 如果任一不存在，告知用户需要先运行前置步骤，然后停止
+1. 确定目标日期 `TARGET_DATE`：默认是今天；用户明确要求补跑/重生成某一天（例如"重新生成昨日笔记"）时使用该日期。
+2. 检查当天的推荐文件 `{DAILY_PAPERS_PATH}/YYYY-MM-DD-论文推荐.md` 是否存在——**必需**，不存在则要求用户先跑前置步骤然后停止。
+3. 检查 `/tmp/daily_papers_enriched.json` 是否存在——**可选**：
+   - 若存在且 `date` 字段匹配 `TARGET_DATE`，按正常流程使用。
+   - 若不存在或 `date` 不匹配（典型补跑场景：昨日的 enriched json 已被今天的 run 覆盖），进入 **rerun 模式**：跳过 enriched json，所有概念和论文信息都从推荐文件里提取。此时在 Step 1a 不读取 `method_names`；Step 2 从推荐文件的 `### N.` 段落里抓 arXiv 链接。
+4. 在 rerun 模式下，明确告知用户"检测到 enriched json 缺失或过期，进入 rerun 模式，仅依赖推荐文件"。
 
 ## 工作流程
 
 ### Step 1: 概念库补充
 
 **1a: 提取概念列表**
-1. 扫描今天的推荐文件，提取所有 `[[...]]` 链接
-2. 额外从 `/tmp/daily_papers_enriched.json` 的 `method_names` 列表中提取所有方法名
+1. 扫描 `TARGET_DATE` 的推荐文件，提取所有 `[[...]]` 链接
+2. 正常模式下额外从 `/tmp/daily_papers_enriched.json` 的 `method_names` 列表中提取方法名；rerun 模式跳过这一步
 3. 合并去重
 
 **1b: 过滤**
@@ -99,7 +102,7 @@ paper-reader 在独立的 Task agent 中运行，不会占用主 agent 的 conte
 1. 文件行数 >= 120（低于此值说明内容不完整）
 2. 包含 `$$` 或 `$` LaTeX 公式（至少 2 处）
 3. 包含 `![` 图片引用（至少 1 张）
-4. 包含 `## 关键公式` 和 `## 实验结果` section header
+4. 包含 `## 关键公式` 和 `## 实验`（或 `## 实验结果`）section header
 5. 如果任一条件不满足，**删除文件并重新生成**
 
 ### Step 3: 笔记链接回填

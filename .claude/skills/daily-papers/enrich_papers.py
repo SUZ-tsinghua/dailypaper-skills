@@ -555,7 +555,7 @@ def main():
     _write_output(output, output_path)
 
 
-def _write_output(data: str, output_path: str | None):
+def _write_output(data: str, output_path):
     """Write output to file (if path given) or stdout with explicit flush."""
     if output_path:
         with open(output_path, "w", encoding="utf-8") as f:

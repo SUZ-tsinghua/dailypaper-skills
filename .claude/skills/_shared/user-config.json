@@ -72,15 +72,8 @@
     "arxiv_categories": ["cs.RO"],
     "min_score": 2,
     "top_n": 30,
-    "sources": ["arxiv", "company-blogs"],
-    "company_blogs": [
-      {"name": "NVIDIA Robotics", "url": "https://developer.nvidia.com/blog/category/robotics/feed/", "company": "NVIDIA", "max_items": 15, "lookback_days": 21},
-      {"name": "DeepMind", "url": "https://deepmind.google/blog/rss.xml", "company": "Google DeepMind", "max_items": 30, "lookback_days": 21},
-      {"name": "HuggingFace Blog", "url": "https://huggingface.co/blog/feed.xml", "company": "Hugging Face", "max_items": 30, "lookback_days": 21},
-      {"name": "Google Research", "url": "https://research.google/blog/rss/", "company": "Google Research", "max_items": 30, "lookback_days": 21},
-      {"name": "Physical Intelligence", "url": "https://www.pi.website/sitemap.xml", "company": "Physical Intelligence", "type": "sitemap", "path_prefix": "/blog/", "max_items": 10, "lookback_days": 30},
-      {"name": "Figure", "url": "https://www.figure.ai/sitemap.xml", "company": "Figure", "type": "sitemap", "path_prefix": "/news/", "max_items": 10, "lookback_days": 30}
-    ]
+    "sources": ["arxiv"],
+    "company_blogs": []
   },
   "automation": {
     "auto_refresh_indexes": true,

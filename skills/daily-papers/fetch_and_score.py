@@ -47,11 +47,6 @@ SOURCES = set(_CONFIG.get("sources", ["arxiv", "hf-daily", "hf-trending", "compa
 DAILYPAPERS_DIR = daily_papers_dir()
 HISTORY_PATH = DAILYPAPERS_DIR / ".history.json"
 
-ATOM_NS = {
-    "atom": "http://www.w3.org/2005/Atom",
-    "arxiv": "http://arxiv.org/schemas/atom",
-}
-
 OAI_NS = {
     "oai": "http://www.openarchives.org/OAI/2.0/",
     "arx": "http://arxiv.org/OAI/arXiv/",
@@ -90,24 +85,20 @@ def score_paper(paper: dict, is_trending: bool = False) -> int:
     elif domain_hits == 1:
         score += 1
 
-    # 4. Trending boost (HF sources only)
-    #    GATE: only apply if paper has at least 1 keyword or domain match,
-    #    to prevent irrelevant but popular papers from flooding the list
+    # Trending boost is gated on keyword/domain relevance — otherwise
+    # a popular but off-topic paper would flood the top of the list.
     has_relevance = keyword_hits > 0 or domain_hits > 0
     if is_trending:
         upvotes = paper.get("hf_upvotes", 0) or 0
         if has_relevance:
-            # Relevant + trending → full boost
             if upvotes >= 10:
                 score += 3
             elif upvotes >= 5:
                 score += 2
             elif upvotes >= 2:
                 score += 1
-        else:
-            # No relevance → minimal boost (only very popular papers get a chance)
-            if upvotes >= 20:
-                score += 1
+        elif upvotes >= 20:
+            score += 1
 
     # Company blogs are editorially curated (not a firehose), so +3 matches
     # the top trending tier — but gated on relevance to skip funding/partnership PR.
@@ -139,7 +130,6 @@ def _parse_hf_item(item: dict, source: str):
 
     upvotes = p.get("upvotes", 0)
 
-    # Authors
     authors_raw = p.get("authors", [])
     if isinstance(authors_raw, list):
         names = []
@@ -523,7 +513,6 @@ def merge_and_dedup(
         else:
             deduped[aid] = p
 
-    # Mark any remaining that appear in history
     for aid, p in deduped.items():
         if aid in history_ids and not p.get("is_re_recommend"):
             p["is_re_recommend"] = True
@@ -589,9 +578,12 @@ def main():
         print("  arxiv disabled via config", file=sys.stderr)
         arxiv_papers = []
 
-    # Company blog posts (Physical Intelligence, NVIDIA, DeepMind, etc.)
     blog_papers: list[dict] = []
-    if "company-blogs" in SOURCES and COMPANY_BLOGS:
+    if "company-blogs" not in SOURCES:
+        print("  company-blogs disabled via config", file=sys.stderr)
+    elif not COMPANY_BLOGS:
+        print("  company-blogs enabled but no blog URLs configured", file=sys.stderr)
+    else:
         try:
             from fetch_company_blogs import fetch_company_blogs
             raw_blogs = fetch_company_blogs(COMPANY_BLOGS)
@@ -600,10 +592,8 @@ def main():
                 if p["score"] >= 0:
                     blog_papers.append(p)
             print(f"  Blogs: {len(blog_papers)} posts after scoring", file=sys.stderr)
-        except Exception as e:  # noqa: BLE001
+        except Exception as e:
             print(f"  [WARN] blog fetch failed: {e}", file=sys.stderr)
-    elif "company-blogs" not in SOURCES:
-        print("  company-blogs disabled via config", file=sys.stderr)
 
     top = merge_and_dedup(
         hf_papers, arxiv_papers, target_date,
@@ -614,7 +604,7 @@ def main():
     import io
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
     json.dump(top, sys.stdout, ensure_ascii=False, indent=2)
-    print(file=sys.stdout)  # trailing newline
+    print(file=sys.stdout)
 
 
 if __name__ == "__main__":

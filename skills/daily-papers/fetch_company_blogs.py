@@ -66,7 +66,7 @@ class _RedirectHandler308(HTTPRedirectHandler):
     which 308-redirects back, so we need this for broader compat.
     """
 
-    def http_error_308(self, req, fp, code, msg, headers):  # noqa: D401
+    def http_error_308(self, req, fp, code, msg, headers):
         return self.http_error_301(req, fp, 301, msg, headers)
 
 
@@ -110,15 +110,10 @@ def _parse_iso(s: str):
 def _strip_html(text: str) -> str:
     if not text:
         return ""
-    # Strip CDATA wrapper if present
     text = re.sub(r"<!\[CDATA\[(.*?)\]\]>", r"\1", text, flags=re.S)
-    # Remove all tags
     text = re.sub(r"<[^>]+>", " ", text)
-    # Decode all HTML entities (named + numeric + hex, e.g. &#x27;)
     text = _html.unescape(text)
-    # Collapse whitespace
-    text = re.sub(r"\s+", " ", text).strip()
-    return text
+    return re.sub(r"\s+", " ", text).strip()
 
 
 def _make_id(url: str) -> str:
@@ -211,24 +206,18 @@ _SITEMAP_NS = {"sm": "http://www.sitemaps.org/schemas/sitemap/0.9"}
 
 
 def _extract_meta(html: str, prop: str) -> str:
-    """Extract <meta property=prop> or <meta name=prop> content, order-agnostic."""
+    """Extract <meta property=prop> or <meta name=prop> content, attr-order agnostic."""
     if not html:
         return ""
-    # attr order 1: property/name first, then content
-    pat1 = re.compile(
-        rf'<meta\s+(?:property|name)=["\']{re.escape(prop)}["\']\s+content=["\']([^"\']*)["\']',
-        re.I,
-    )
-    m = pat1.search(html)
-    if m:
-        return _strip_html(m.group(1))
-    # attr order 2: content first, then property/name
-    pat2 = re.compile(
-        rf'<meta\s+content=["\']([^"\']*)["\']\s+(?:property|name)=["\']{re.escape(prop)}["\']',
-        re.I,
-    )
-    m = pat2.search(html)
-    return _strip_html(m.group(1)) if m else ""
+    escaped = re.escape(prop)
+    for pattern in (
+        rf'<meta\s+(?:property|name)=["\']{escaped}["\']\s+content=["\']([^"\']*)["\']',
+        rf'<meta\s+content=["\']([^"\']*)["\']\s+(?:property|name)=["\']{escaped}["\']',
+    ):
+        m = re.search(pattern, html, re.I)
+        if m:
+            return _strip_html(m.group(1))
+    return ""
 
 
 def _extract_title_tag(html: str) -> str:
@@ -262,10 +251,8 @@ def _parse_sitemap(
         print(f"  [WARN] sitemap parse error for {company}: {e}", file=sys.stderr)
         return []
 
-    today = datetime.now().date()
-    cutoff = today - timedelta(days=lookback_days)
+    cutoff = datetime.now().date() - timedelta(days=lookback_days)
 
-    # Collect (url, lastmod_date) within lookback + matching path_prefix
     candidates: list[tuple[str, date]] = []
     for url_el in root.findall("sm:url", _SITEMAP_NS):
         loc_el = url_el.find("sm:loc", _SITEMAP_NS)
@@ -273,12 +260,11 @@ def _parse_sitemap(
             continue
         url = loc_el.text.strip()
 
-        # Require the prefix AND something after it (skip the index page itself).
+        # Require the prefix AND something after it — skips the index page itself.
         if path_prefix:
             if path_prefix not in url:
                 continue
-            tail = url.split(path_prefix, 1)[1].strip("/")
-            if not tail:
+            if not url.split(path_prefix, 1)[1].strip("/"):
                 continue
 
         lastmod_el = url_el.find("sm:lastmod", _SITEMAP_NS)
@@ -289,7 +275,6 @@ def _parse_sitemap(
 
         candidates.append((url, lastmod))
 
-    # Newest-first, cap at max_items
     candidates.sort(key=lambda x: x[1] or date.min, reverse=True)
     candidates = candidates[:max_items]
 

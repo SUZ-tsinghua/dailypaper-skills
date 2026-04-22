@@ -1,19 +1,18 @@
 {
   "paths": {
-    "obsidian_vault": "~/ObsidianVault",
+    "obsidian_vault": "~/Documents/ObsidianVault",
     "paper_notes_folder": "论文笔记",
     "daily_papers_folder": "DailyPapers",
     "concepts_folder": "_概念",
-    "zotero_db": "~/Zotero/zotero.sqlite",
-    "zotero_storage": "~/Zotero/storage"
+    "zotero_db": "~/Documents/Zotero/zotero.sqlite",
+    "zotero_storage": "~/Documents/Zotero/storage"
   },
   "daily_papers": {
     "keywords": [
+      "humanoid",
       "world model",
-      "diffusion model",
+      "VLA",
       "embodied ai",
-      "3d gaussian splatting",
-      "4d gaussian splatting",
       "sim-to-real",
       "sim2real",
       "robot simulation"
@@ -70,9 +69,18 @@
       "visuomotor",
       "action prediction"
     ],
-    "arxiv_categories": ["cs.RO", "cs.CV", "cs.AI", "cs.LG"],
+    "arxiv_categories": ["cs.RO"],
     "min_score": 2,
-    "top_n": 30
+    "top_n": 30,
+    "sources": ["arxiv", "company-blogs"],
+    "company_blogs": [
+      {"name": "NVIDIA Robotics", "url": "https://developer.nvidia.com/blog/category/robotics/feed/", "company": "NVIDIA", "max_items": 15, "lookback_days": 21},
+      {"name": "DeepMind", "url": "https://deepmind.google/blog/rss.xml", "company": "Google DeepMind", "max_items": 30, "lookback_days": 21},
+      {"name": "HuggingFace Blog", "url": "https://huggingface.co/blog/feed.xml", "company": "Hugging Face", "max_items": 30, "lookback_days": 21},
+      {"name": "Google Research", "url": "https://research.google/blog/rss/", "company": "Google Research", "max_items": 30, "lookback_days": 21},
+      {"name": "Physical Intelligence", "url": "https://www.pi.website/sitemap.xml", "company": "Physical Intelligence", "type": "sitemap", "path_prefix": "/blog/", "max_items": 10, "lookback_days": 30},
+      {"name": "Figure", "url": "https://www.figure.ai/sitemap.xml", "company": "Figure", "type": "sitemap", "path_prefix": "/news/", "max_items": 10, "lookback_days": 30}
+    ]
   },
   "automation": {
     "auto_refresh_indexes": true,

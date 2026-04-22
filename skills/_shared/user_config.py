@@ -100,6 +100,9 @@ DEFAULT_CONFIG = {
         "arxiv_categories": ["cs.RO", "cs.CV", "cs.AI", "cs.LG"],
         "min_score": 2,
         "top_n": 30,
+        # Which fetchers to enable. Supported: "arxiv", "hf-daily", "hf-trending", "company-blogs"
+        "sources": ["arxiv", "hf-daily", "hf-trending", "company-blogs"],
+        "company_blogs": [],
     },
     "automation": {
         "auto_refresh_indexes": True,

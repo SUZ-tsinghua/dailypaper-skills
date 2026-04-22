@@ -79,12 +79,17 @@ description: |
 
 #### 数据来源提醒
 
-每篇论文的 `source`（hf-daily / hf-trending / arxiv）和 `hf_upvotes` 来自抓取数据，必须保留到输出中。`method_summary` 来自富化数据，用于撰写核心方法描述。
+每篇论文的 `source`（hf-daily / hf-trending / arxiv / company-blog）和 `hf_upvotes` 来自抓取数据，必须保留到输出中。`method_summary` 来自富化数据，用于撰写核心方法描述。
 
 **来源格式规则**（按 source 字段分别显示）：
 - `hf-daily` → `📰 HF Daily，⬆️ {hf_upvotes}`
 - `hf-trending` → 🔥 HF Trending，⬆️ {hf_upvotes}`
 - `arxiv` → `📄 arXiv 关键词检索`（不显示 upvotes，因为没有）
+- `company-blog` → `🏢 {company} Blog`（`company` 字段取值，如 "Google DeepMind"、"NVIDIA"；不显示 upvotes）
+
+**链接格式规则**：
+- 默认（有 arXiv ID 的论文）：`**链接**: [arXiv](abs_url) | [PDF](pdf_url)`
+- `source == "company-blog"` 条目：`**链接**: [Blog Post]({url})`（没有 arXiv 预印本，直接单链；也没有 authors / affiliations / figure_url / method_summary 等富化字段，正文部分基于 abstract/description 写简洁锐评即可）
 
 #### 兜底过滤
 

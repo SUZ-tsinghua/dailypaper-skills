@@ -12,6 +12,8 @@ Usage:
 Stderr: progress logs.  Stdout: JSON array of top papers (30 * days).
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
@@ -38,6 +40,9 @@ DOMAIN_BOOST_KEYWORDS = _CONFIG["domain_boost_keywords"]
 ARXIV_CATEGORIES = _CONFIG["arxiv_categories"]
 MIN_SCORE = _CONFIG["min_score"]
 TOP_N = _CONFIG["top_n"]
+COMPANY_BLOGS = _CONFIG.get("company_blogs", []) or []
+# Which fetchers to enable. Supported: "arxiv", "hf-daily", "hf-trending", "company-blogs"
+SOURCES = set(_CONFIG.get("sources", ["arxiv", "hf-daily", "hf-trending", "company-blogs"]))
 
 DAILYPAPERS_DIR = daily_papers_dir()
 HISTORY_PATH = DAILYPAPERS_DIR / ".history.json"
@@ -97,6 +102,11 @@ def score_paper(paper: dict, is_trending: bool = False) -> int:
             if upvotes >= 20:
                 score += 1
 
+    # Company blogs are editorially curated (not a firehose), so +3 matches
+    # the top trending tier — but gated on relevance to skip funding/partnership PR.
+    if paper.get("source") == "company-blog" and has_relevance:
+        score += 3
+
     return score
 
 
@@ -113,7 +123,7 @@ def fetch_url(url: str, timeout: int = 30) -> str:
         return ""
 
 
-def _parse_hf_item(item: dict, source: str) -> tuple[str, dict] | None:
+def _parse_hf_item(item: dict, source: str):
     """Parse a single HF API item into (arxiv_id, paper_dict). Returns None on skip."""
     p = item.get("paper", {})
     arxiv_id = p.get("id", "")
@@ -158,89 +168,142 @@ def _parse_hf_item(item: dict, source: str) -> tuple[str, dict] | None:
     return arxiv_id, paper
 
 
-def fetch_hf_papers(start_date=None, end_date=None) -> list[dict]:
-    papers = {}  # arxiv_id → paper
-
-    # ── hf-daily: loop each day in range ──
-    if start_date and end_date:
-        d = start_date
-        while d <= end_date:
-            date_str = d.isoformat()
-            endpoint = f"https://huggingface.co/api/daily_papers?date={date_str}&limit=100"
-            print(f"  Fetching hf-daily {date_str}...", file=sys.stderr)
-            raw = fetch_url(endpoint)
-            if raw:
-                try:
-                    items = json.loads(raw)
-                except json.JSONDecodeError:
-                    items = []
-                    print(f"  [WARN] bad JSON from hf-daily {date_str}", file=sys.stderr)
-                for item in items:
-                    result = _parse_hf_item(item, "hf-daily")
-                    if result:
-                        arxiv_id, paper = result
-                        if arxiv_id not in papers or paper["score"] > papers[arxiv_id]["score"]:
-                            papers[arxiv_id] = paper
-            d += timedelta(days=1)
-    else:
-        # Legacy single-call (days=1 default)
-        endpoint = "https://huggingface.co/api/daily_papers?limit=50"
-        print(f"  Fetching hf-daily...", file=sys.stderr)
-        raw = fetch_url(endpoint)
-        if raw:
-            try:
-                items = json.loads(raw)
-            except json.JSONDecodeError:
-                items = []
-                print(f"  [WARN] bad JSON from hf-daily", file=sys.stderr)
-            for item in items:
-                result = _parse_hf_item(item, "hf-daily")
-                if result:
-                    arxiv_id, paper = result
-                    if arxiv_id not in papers or paper["score"] > papers[arxiv_id]["score"]:
-                        papers[arxiv_id] = paper
-
-    # ── hf-trending: always single call (not date-dependent) ──
-    endpoint = "https://huggingface.co/api/daily_papers?sort=trending&limit=50"
-    print(f"  Fetching hf-trending...", file=sys.stderr)
+def _ingest_hf_endpoint(endpoint: str, source: str, label: str, papers: dict) -> None:
+    """Fetch an HF daily_papers endpoint and merge parsed items into papers (keep higher score)."""
+    print(f"  Fetching {label}...", file=sys.stderr)
     raw = fetch_url(endpoint)
-    if raw:
-        try:
-            items = json.loads(raw)
-        except json.JSONDecodeError:
-            items = []
-            print(f"  [WARN] bad JSON from hf-trending", file=sys.stderr)
-        for item in items:
-            result = _parse_hf_item(item, "hf-trending")
-            if result:
-                arxiv_id, paper = result
-                if arxiv_id not in papers or paper["score"] > papers[arxiv_id]["score"]:
-                    papers[arxiv_id] = paper
+    if not raw:
+        return
+    try:
+        items = json.loads(raw)
+    except json.JSONDecodeError:
+        print(f"  [WARN] bad JSON from {label}", file=sys.stderr)
+        return
+    for item in items:
+        result = _parse_hf_item(item, source)
+        if not result:
+            continue
+        arxiv_id, paper = result
+        if arxiv_id not in papers or paper["score"] > papers[arxiv_id]["score"]:
+            papers[arxiv_id] = paper
+
+
+def fetch_hf_papers(start_date=None, end_date=None) -> list[dict]:
+    papers: dict = {}  # arxiv_id → paper
+
+    hf_daily_enabled = "hf-daily" in SOURCES
+    hf_trending_enabled = "hf-trending" in SOURCES
+
+    if not hf_daily_enabled and not hf_trending_enabled:
+        print("  HF sources disabled via config (skipping hf-daily & hf-trending)", file=sys.stderr)
+        return []
+
+    if hf_daily_enabled:
+        if start_date and end_date:
+            d = start_date
+            while d <= end_date:
+                date_str = d.isoformat()
+                _ingest_hf_endpoint(
+                    f"https://huggingface.co/api/daily_papers?date={date_str}&limit=100",
+                    "hf-daily", f"hf-daily {date_str}", papers,
+                )
+                d += timedelta(days=1)
+        else:
+            _ingest_hf_endpoint(
+                "https://huggingface.co/api/daily_papers?limit=50",
+                "hf-daily", "hf-daily", papers,
+            )
+    else:
+        print("  hf-daily disabled via config", file=sys.stderr)
+
+    if hf_trending_enabled:
+        _ingest_hf_endpoint(
+            "https://huggingface.co/api/daily_papers?sort=trending&limit=50",
+            "hf-trending", "hf-trending", papers,
+        )
+    else:
+        print("  hf-trending disabled via config", file=sys.stderr)
 
     result = list(papers.values())
     print(f"  HF: {len(result)} papers after scoring", file=sys.stderr)
     return result
 
 
+def _newest_published_date(root):
+    """Return the newest <published> date across entries, for staleness detection."""
+    newest = None
+    for entry in root.findall("atom:entry", ATOM_NS):
+        pub_el = entry.find("atom:published", ATOM_NS)
+        if pub_el is None or not pub_el.text:
+            continue
+        try:
+            d = datetime.strptime(pub_el.text[:10], "%Y-%m-%d").date()
+        except ValueError:
+            continue
+        if newest is None or d > newest:
+            newest = d
+    return newest
+
+
 def fetch_arxiv_papers(start_date=None, end_date=None, days: int = 1) -> list[dict]:
-    max_results = min(400 * days, 3000)
+    import time as _time
+
+    max_results = min(2000 * days, 3000)
     cats = "+OR+".join(f"cat:{c}" for c in ARXIV_CATEGORIES)
-    url = (
+    base_url = (
         f"https://export.arxiv.org/api/query?"
         f"search_query=({cats})"
         f"&sortBy=submittedDate&sortOrder=descending&max_results={max_results}"
     )
 
     timeout = max(60, 30 * days)
-    print(f"  Fetching arXiv (max_results={max_results}, timeout={timeout}s)...", file=sys.stderr)
-    xml_text = fetch_url(url, timeout=timeout)
-    if not xml_text:
-        return []
+    today_ref = end_date or datetime.now().date()
+    # arXiv mirrors occasionally serve a stale snapshot where the newest
+    # returned paper is >=2 days old — this misses the most recent announcement
+    # batch entirely. Retry with a cache-buster when this happens.
+    STALENESS_THRESHOLD_DAYS = 2
+    MAX_ATTEMPTS = 3
 
-    try:
-        root = ET.fromstring(xml_text)
-    except ET.ParseError as e:
-        print(f"  [WARN] arXiv XML parse error: {e}", file=sys.stderr)
+    root = None
+    for attempt in range(1, MAX_ATTEMPTS + 1):
+        url = base_url if attempt == 1 else f"{base_url}&_cb={int(_time.time())}_{attempt}"
+        print(
+            f"  Fetching arXiv (attempt {attempt}/{MAX_ATTEMPTS}, "
+            f"max_results={max_results}, timeout={timeout}s)...",
+            file=sys.stderr,
+        )
+        xml_text = fetch_url(url, timeout=timeout)
+        if not xml_text:
+            if attempt < MAX_ATTEMPTS:
+                _time.sleep(5)
+                continue
+            return []
+
+        try:
+            root = ET.fromstring(xml_text)
+        except ET.ParseError as e:
+            print(f"  [WARN] arXiv XML parse error: {e}", file=sys.stderr)
+            if attempt < MAX_ATTEMPTS:
+                _time.sleep(5)
+                continue
+            return []
+
+        newest = _newest_published_date(root)
+        if newest is None:
+            break  # nothing to validate; proceed with what we have
+        lag_days = (today_ref - newest).days
+        if lag_days >= STALENESS_THRESHOLD_DAYS and attempt < MAX_ATTEMPTS:
+            print(
+                f"  [WARN] arXiv result looks stale "
+                f"(newest_published={newest}, target={today_ref}, lag={lag_days}d); "
+                f"retrying with cache-buster",
+                file=sys.stderr,
+            )
+            _time.sleep(5)
+            continue
+        break
+
+    if root is None:
         return []
 
     papers = []
@@ -319,6 +382,18 @@ def extract_arxiv_id(url: str) -> str:
     return m.group(1) if m else ""
 
 
+def paper_id(p: dict) -> str:
+    """Stable dedup ID for any paper source.
+
+    Prefers explicit ``id`` field (used by company-blog posts like ``blog:abc123``),
+    otherwise falls back to arXiv ID extracted from the URL.
+    Returns "" if nothing usable is found.
+    """
+    if p.get("id"):
+        return p["id"]
+    return extract_arxiv_id(p.get("url", ""))
+
+
 def load_history() -> list[dict]:
     if HISTORY_PATH.exists():
         try:
@@ -349,13 +424,15 @@ def merge_and_dedup(
     target_date,
     days: int = 1,
     top_n: int = TOP_N,
+    blog_papers: list[dict] | None = None,
 ) -> list[dict]:
     is_weekend = target_date.weekday() >= 5
+    blog_papers = blog_papers or []
 
-    # ── merge by arXiv ID, keep higher score ──
+    # ── merge by stable ID (arXiv ID or blog synthetic ID), keep higher score ──
     by_id: dict[str, dict] = {}
-    for p in hf_papers + arxiv_papers:
-        aid = extract_arxiv_id(p["url"])
+    for p in hf_papers + arxiv_papers + blog_papers:
+        aid = paper_id(p)
         if not aid:
             continue
         if aid not in by_id or p["score"] > by_id[aid]["score"]:
@@ -457,9 +534,36 @@ def main():
         file=sys.stderr,
     )
 
+    print(f"  Enabled sources: {sorted(SOURCES)}", file=sys.stderr)
+
     hf_papers = fetch_hf_papers(start_date, target_date)
-    arxiv_papers = fetch_arxiv_papers(start_date, target_date, days)
-    top = merge_and_dedup(hf_papers, arxiv_papers, target_date, days=days, top_n=top_n)
+
+    if "arxiv" in SOURCES:
+        arxiv_papers = fetch_arxiv_papers(start_date, target_date, days)
+    else:
+        print("  arxiv disabled via config", file=sys.stderr)
+        arxiv_papers = []
+
+    # Company blog posts (Physical Intelligence, NVIDIA, DeepMind, etc.)
+    blog_papers: list[dict] = []
+    if "company-blogs" in SOURCES and COMPANY_BLOGS:
+        try:
+            from fetch_company_blogs import fetch_company_blogs
+            raw_blogs = fetch_company_blogs(COMPANY_BLOGS)
+            for p in raw_blogs:
+                p["score"] = score_paper(p)
+                if p["score"] >= 0:
+                    blog_papers.append(p)
+            print(f"  Blogs: {len(blog_papers)} posts after scoring", file=sys.stderr)
+        except Exception as e:  # noqa: BLE001
+            print(f"  [WARN] blog fetch failed: {e}", file=sys.stderr)
+    elif "company-blogs" not in SOURCES:
+        print("  company-blogs disabled via config", file=sys.stderr)
+
+    top = merge_and_dedup(
+        hf_papers, arxiv_papers, target_date,
+        days=days, top_n=top_n, blog_papers=blog_papers,
+    )
 
     # Output to stdout (UTF-8 encoded for Windows compatibility)
     import io
